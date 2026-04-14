@@ -12,7 +12,7 @@ fastapi-llm-app/
 ├── requirements.txt     # Dependencies (FastAPI, Uvicorn, OpenAI/HuggingFace)
 ├── .env                 # API Keys (do not commit to GitHub)
 ├── .python-version      # For Render (e.g., 3.11.0)
-└── README.md            # Prompt experiment documentation
+└── README.md            # Your prompt experiment documentation
 ```
 
 ## Quick Start
