@@ -1,0 +1,3 @@
+fastapi-llm-app/.env
+__pycache__/
+*.pyc
