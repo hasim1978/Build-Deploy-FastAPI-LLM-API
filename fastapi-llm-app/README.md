@@ -1,8 +1,6 @@
 # FastAPI LLM App
 
-A minimal FastAPI starter for prompt experiments with:
-- OpenAI Chat Completions API
-- Hugging Face Inference API
+A minimal FastAPI starter for utility tasks powered by the OpenAI Chat Completions API.
 
 ## Project Structure
 
@@ -30,13 +28,11 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-3. Add your keys to `.env`:
+3. Add your key to `.env`:
 
 ```env
 OPENAI_API_KEY=your_openai_api_key_here
-HUGGINGFACE_API_KEY=your_huggingface_api_token_here
 OPENAI_MODEL=gpt-4o-mini
-HUGGINGFACE_MODEL=HuggingFaceH4/zephyr-7b-beta
 ```
 
 4. Run the app:
@@ -47,20 +43,28 @@ uvicorn main:app --reload --port 8000
 
 ## Endpoints
 
-- `GET /` - basic health response
-- `GET /providers` - supported LLM providers
-- `POST /generate` - generate text from a prompt
+- `GET /health` - API health and UTC timestamp
+- `POST /summarize` - summarize input text
+- `POST /analyze-sentiment` - return sentiment, confidence score, and explanation
 
-Example request:
+### Example: Summarize
 
 ```bash
-curl -X POST "http://127.0.0.1:8000/generate" \
+curl -X POST "http://127.0.0.1:8000/summarize" \
   -H "Content-Type: application/json" \
   -d '{
-    "prompt": "Explain FastAPI in two sentences.",
-    "provider": "openai",
-    "temperature": 0.7,
-    "max_tokens": 200
+    "text": "FastAPI is a modern web framework for building APIs with Python.",
+    "max_length": 80
+  }'
+```
+
+### Example: Analyze Sentiment
+
+```bash
+curl -X POST "http://127.0.0.1:8000/analyze-sentiment" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "text": "I love how fast and easy this API is to use."
   }'
 ```
 
@@ -80,5 +84,5 @@ Use this table to track and compare prompt tests:
 
 | Date | Provider | Model | Prompt | Settings | Result | Notes |
 |------|----------|-------|--------|----------|--------|-------|
-| YYYY-MM-DD | openai | gpt-4o-mini | "..." | temp=0.7,max_tokens=200 | "..." | "..." |
+| YYYY-MM-DD | openai | gpt-4o-mini | "Summarize this..." | max_length=100 | "..." | "..." |
 

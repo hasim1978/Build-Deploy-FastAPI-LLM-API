@@ -1,56 +1,39 @@
+import json
 import os
-from typing import Any, Dict, List, Optional
+from datetime import datetime
+from typing import Literal, Optional
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
 
 load_dotenv()
 
-app = FastAPI(
-    title="FastAPI LLM App",
-    description="A lightweight FastAPI starter for prompt experiments.",
-    version="0.1.0",
-)
+app = FastAPI(title="LLM Utility API")
 
 
-class PromptRequest(BaseModel):
-    prompt: str = Field(..., description="The prompt text to send to the model.")
-    provider: str = Field(
-        default_factory=lambda: os.getenv("LLM_PROVIDER", "openai"),
-        description="LLM provider to use: 'openai' or 'huggingface'.",
-    )
-    model: Optional[str] = Field(
-        default=None,
-        description="Optional model name override for the selected provider.",
-    )
-    max_tokens: int = Field(default=300, ge=1, le=4000)
-    temperature: float = Field(default=0.7, ge=0.0, le=2.0)
+class SummarizeRequest(BaseModel):
+    text: str = Field(..., min_length=1, description="Input text to summarize.")
+    max_length: int = Field(default=100, ge=20, le=1000)
 
 
-class PromptResponse(BaseModel):
-    provider: str
+class SummaryResponse(BaseModel):
+    summary: str
     model: str
-    output: str
-    raw: Dict[str, Any]
 
 
-@app.get("/")
-def health() -> Dict[str, str]:
-    return {"status": "ok", "message": "FastAPI LLM App is running"}
+class SentimentRequest(BaseModel):
+    text: str = Field(..., min_length=1, description="Input text to analyze.")
 
 
-@app.get("/health")
-def health_alias() -> Dict[str, str]:
-    return {"status": "ok"}
+class SentimentResponse(BaseModel):
+    sentiment: Literal["positive", "negative", "neutral"]
+    confidence_score: float = Field(..., ge=0.0, le=1.0)
+    explanation: str
+    model: str
 
 
-@app.get("/providers")
-def providers() -> Dict[str, List[str]]:
-    return {"providers": ["openai", "huggingface"]}
-
-
-def _generate_openai(req: PromptRequest) -> PromptResponse:
+def _openai_client():
     api_key = os.getenv("OPENAI_API_KEY")
     if not api_key:
         raise HTTPException(status_code=400, detail="OPENAI_API_KEY is not configured.")
@@ -63,67 +46,97 @@ def _generate_openai(req: PromptRequest) -> PromptResponse:
             detail="openai package is missing. Install dependencies from requirements.txt.",
         ) from exc
 
-    model = req.model or os.getenv("OPENAI_MODEL", "gpt-4o-mini")
-    client = OpenAI(api_key=api_key)
+    return OpenAI(api_key=api_key)
 
-    completion = client.chat.completions.create(
-        model=model,
-        messages=[{"role": "user", "content": req.prompt}],
-        temperature=req.temperature,
-        max_tokens=req.max_tokens,
+
+def _model_name() -> str:
+    return os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+
+
+@app.get("/health")
+async def health_check():
+    return {"status": "healthy", "timestamp": datetime.utcnow().isoformat()}
+
+
+@app.post("/summarize", response_model=SummaryResponse)
+async def summarize(request: SummarizeRequest) -> SummaryResponse:
+    client = _openai_client()
+    model = _model_name()
+
+    prompt = (
+        "You are a concise summarization assistant.\n"
+        f"Summarize the following text in no more than {request.max_length} words.\n"
+        "Keep the summary factual and readable.\n\n"
+        f"Text:\n{request.text}"
     )
-
-    output = completion.choices[0].message.content or ""
-    return PromptResponse(
-        provider="openai",
-        model=model,
-        output=output,
-        raw=completion.model_dump(),
-    )
-
-
-def _generate_huggingface(req: PromptRequest) -> PromptResponse:
-    api_key = os.getenv("HUGGINGFACE_API_KEY")
-    if not api_key:
-        raise HTTPException(
-            status_code=400, detail="HUGGINGFACE_API_KEY is not configured."
-        )
 
     try:
-        from huggingface_hub import InferenceClient
-    except ImportError as exc:
+        completion = client.chat.completions.create(
+            model=model,
+            messages=[
+                {
+                    "role": "system",
+                    "content": "You produce concise, faithful summaries.",
+                },
+                {"role": "user", "content": prompt},
+            ],
+            temperature=0.3,
+            max_tokens=300,
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"OpenAI request failed: {exc}") from exc
+
+    summary_text = (completion.choices[0].message.content or "").strip()
+    if not summary_text:
+        raise HTTPException(status_code=502, detail="OpenAI returned an empty summary.")
+
+    return SummaryResponse(summary=summary_text, model=model)
+
+
+@app.post("/analyze-sentiment", response_model=SentimentResponse)
+async def analyze_sentiment(request: SentimentRequest) -> SentimentResponse:
+    client = _openai_client()
+    model = _model_name()
+
+    prompt = (
+        "Analyze the sentiment of the user text.\n"
+        "Return ONLY valid JSON with this schema:\n"
+        '{'
+        '"sentiment":"positive|negative|neutral",'
+        '"confidence_score":0.0,'
+        '"explanation":"brief explanation"'
+        '}\n\n'
+        f"Text:\n{request.text}"
+    )
+
+    try:
+        completion = client.chat.completions.create(
+            model=model,
+            messages=[
+                {
+                    "role": "system",
+                    "content": "You are a precise sentiment analysis assistant.",
+                },
+                {"role": "user", "content": prompt},
+            ],
+            temperature=0.0,
+            response_format={"type": "json_object"},
+            max_tokens=200,
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"OpenAI request failed: {exc}") from exc
+
+    raw_content = (completion.choices[0].message.content or "").strip()
+    if not raw_content:
+        raise HTTPException(status_code=502, detail="OpenAI returned empty sentiment data.")
+
+    try:
+        parsed = json.loads(raw_content)
+        sentiment = SentimentResponse.model_validate({**parsed, "model": model})
+    except (json.JSONDecodeError, ValidationError) as exc:
         raise HTTPException(
-            status_code=500,
-            detail="huggingface_hub package is missing. Install dependencies from requirements.txt.",
+            status_code=502,
+            detail=f"Unable to parse sentiment response from OpenAI: {exc}",
         ) from exc
 
-    model = req.model or os.getenv("HUGGINGFACE_MODEL", "HuggingFaceH4/zephyr-7b-beta")
-    client = InferenceClient(model=model, token=api_key)
-
-    generated = client.text_generation(
-        prompt=req.prompt,
-        max_new_tokens=req.max_tokens,
-        temperature=req.temperature,
-    )
-
-    return PromptResponse(
-        provider="huggingface",
-        model=model,
-        output=generated,
-        raw={"text_generation": generated},
-    )
-
-
-@app.post("/generate", response_model=PromptResponse)
-def generate(req: PromptRequest) -> PromptResponse:
-    provider = req.provider.lower().strip()
-
-    if provider == "openai":
-        return _generate_openai(req)
-    if provider == "huggingface":
-        return _generate_huggingface(req)
-
-    raise HTTPException(
-        status_code=400,
-        detail="Unsupported provider. Use 'openai' or 'huggingface'.",
-    )
+    return sentiment
