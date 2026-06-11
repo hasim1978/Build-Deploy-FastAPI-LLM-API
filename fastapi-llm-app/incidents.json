@@ -1,0 +1,50 @@
+[
+  {
+    "incident_id": "INC001",
+    "title": "Checkout API latency spike",
+    "service": "checkout-api",
+    "status": "open",
+    "description": "Customers are seeing elevated latency and intermittent 502 responses during checkout.",
+    "timeline": [
+      {
+        "timestamp": "2026-06-11T07:55:00Z",
+        "event": "Latency alert fired for checkout-api p95 above 2 seconds."
+      },
+      {
+        "timestamp": "2026-06-11T08:05:00Z",
+        "event": "On-call engineer observed increased database connection wait time."
+      }
+    ],
+    "signals": {
+      "error_rate": "4.8%",
+      "p95_latency": "2.7s",
+      "affected_region": "us-east-1"
+    },
+    "suspected_cause": "Database connection pool saturation after a traffic increase.",
+    "customer_impact": "Some users cannot complete checkout on the first attempt."
+  },
+  {
+    "incident_id": "INC002",
+    "title": "Notification delivery backlog",
+    "service": "notification-worker",
+    "status": "investigating",
+    "description": "Email and SMS notifications are delayed because worker queue depth is increasing.",
+    "timeline": [
+      {
+        "timestamp": "2026-06-11T06:40:00Z",
+        "event": "Queue depth crossed warning threshold."
+      },
+      {
+        "timestamp": "2026-06-11T07:10:00Z",
+        "event": "Autoscaling added workers but backlog continued to grow."
+      }
+    ],
+    "signals": {
+      "queue_depth": 18500,
+      "oldest_message_age": "38m",
+      "failed_jobs": 17
+    },
+    "suspected_cause": "Downstream provider throttling notification sends.",
+    "customer_impact": "Time-sensitive account notifications may arrive late."
+  }
+]
